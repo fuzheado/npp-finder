@@ -135,6 +135,8 @@ def main(argv: list[str] | None = None) -> None:
         _output_json(matches, no_refs, args)
     elif args.output == "csv":
         _output_csv(matches, args)
+    elif args.output == "wikitable":
+        _output_wikitable(matches, no_refs, results, args)
     else:
         _output_table(matches, no_refs, results, args)
 
@@ -344,6 +346,80 @@ def _output_csv(matches: list[dict[str, Any]], args: argparse.Namespace) -> None
         )
 
 
+def _output_wikitable(
+    matches: list[dict[str, Any]],
+    no_refs: list[dict[str, Any]],
+    all_results: list[dict[str, Any]],
+    args: argparse.Namespace,
+) -> None:
+    """Print results as a MediaWiki wikitable with clickable links."""
+    total_checked = len(all_results)
+    pages_with_refs = total_checked - len(no_refs)
+
+    # Summary comment (hidden from table display)
+    parts: list[str] = []
+    parts.append(
+        f"<!-- npp-finder: {total_checked} pages, "
+        f"{pages_with_refs} with refs, "
+        f"{len(matches)} matches, "
+        f"{len(no_refs)} no refs "
+        f"({args.days} day(s), "
+        f"limit {args.limit}) -->"
+    )
+
+    parts.append("{| class=\"wikitable sortable\"")
+    parts.append("! Date")
+    parts.append("! Title")
+    parts.append("! Creator")
+    parts.append("! Edits")
+    parts.append("! Size")
+    parts.append("! Infbx")
+    parts.append("! Cats")
+    parts.append("! Del?")
+    parts.append("! Quality")
+    parts.append("! Refs")
+    parts.append("! URL")
+    parts.append("! Sample ref")
+
+    for r in sorted(matches, key=lambda x: x["timestamp"], reverse=True):
+        parts.append("|-")
+        parts.append(f"| {r['timestamp'][:10]}")
+        parts.append(f"| [[{r['title']}]]")
+        parts.append(f"| [[User:{r['user']}|{r['user']}]]")
+
+        ec = r.get("editcount")
+        parts.append(f"| {ec:,d}" if ec is not None else "| —")
+
+        sz = r.get("size")
+        parts.append(f"| {sz:,d}" if sz is not None else "| —")
+
+        parts.append("| Y" if r.get("has_infobox") else "| N")
+
+        nc = len(r.get("categories", []))
+        parts.append(f"| {nc}" if nc else "| —")
+
+        dl = r.get("was_deleted")
+        if dl is True:
+            parts.append("| Y")
+        elif dl is False:
+            parts.append("| N")
+        else:
+            parts.append("| —")
+
+        ql = r.get("quality", "")
+        parts.append(f"| {ql}" if ql else "| —")
+
+        parts.append(f"| {r['total_refs']}")
+        parts.append(f"| {r['url_refs']}")
+
+        sample = (r["bad_samples"][0] if r["bad_samples"] else "")[:28]
+        parts.append(f"| <code>{sample}</code>" if sample else "| —")
+
+    parts.append("|}")
+
+    print("\n".join(parts))
+
+
 # ---------------------------------------------------------------------------
 # CLI parsing
 # ---------------------------------------------------------------------------
@@ -374,7 +450,7 @@ def _parse_args(argv: list[str] | None) -> argparse.Namespace:
     )
     p.add_argument(
         "--output",
-        choices=["table", "json", "csv"],
+        choices=["table", "json", "csv", "wikitable"],
         default="table",
         help="Output format (default: table)",
     )
