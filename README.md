@@ -86,6 +86,63 @@ npp-finder --days 7 --limit 200 --output json > suspicious.json
 npp-finder --days 7 --limit 200 --output csv > suspicious.csv
 ```
 
+### Wikitable for posting on-wiki
+
+```bash
+npp-finder --days 7 --limit 200 --output wikitable > patrol-log.wiki
+```
+
+Paste the contents of the file directly into any wiki page. It renders with:
+- **Article titles** wikilinked (`[[Title]]`) — clickable
+- **Usernames** linked to their user page (`[[User:Name|Name]]`) — clickable
+- `class="wikitable sortable"` for automatic styling and column sorting
+- Summary embedded as an HTML comment at the top
+
+Example output:
+
+```wikitext
+{| class="wikitable sortable"
+! Date
+! Title
+! Creator
+! Edits
+! Size
+! Infbx
+! Cats
+! Del?
+! Quality
+! Refs
+! URL
+! Sample ref
+|-
+| 2026-06-09
+| [[LOL: Slutty Bass]]
+| [[User:Vvenom974|Vvenom974]]
+| 148
+| 4,364
+| Y
+| 6
+| N
+| Start
+| 3
+| 0
+| <code>[cite Instagram]</code>
+|-
+| 2026-06-09
+| [[Betka Ait Mokran]]
+| [[User:Naslechat|Naslechat]]
+| 402
+| 2,175
+| Y
+| 11
+| N
+| Stub
+| 2
+| 0
+| <code>[harvsp]</code>
+|}
+```
+
 ### Skip slow ML predictions
 
 The Lift Wing quality model adds ~0.15s per page. Use `--no-quality` to skip it:
@@ -155,7 +212,7 @@ page, with wikitext formatting simplified:
 |---|---|---|
 | `--days` | `7` | Look back this many days from now |
 | `--limit` | `100` | Maximum new pages to check |
-| `--output` | `table` | Output format: `table`, `json`, or `csv` |
+| `--output` | `table` | Output format: `table`, `json`, `csv`, or `wikitable` |
 | `--unreviewed-only` | off | Only show unpatrolled pages (**requires `patrol` user right**) |
 | `--no-quality` | off | Skip Lift Wing ML quality predictions (faster, fewer API calls) |
 | `--quiet` | off | Suppress progress messages on stderr |
