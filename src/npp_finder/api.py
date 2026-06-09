@@ -131,15 +131,44 @@ class NPPSession:
             params["continue"] = data["continue"]["continue"]
 
     # ------------------------------------------------------------------
-    # Batch page metadata (wikitext + size + categories)
+    # Wikitext-only fetch (lightweight — used in first pass before filtering)
     # ------------------------------------------------------------------
 
-    def fetch_page_details(
+    def fetch_wikitexts(self, page_ids: list[int]) -> dict[int, str]:
+        """Return {pageid: wikitext}.  Minimal overhead — just revisions."""
+        result: dict[int, str] = {}
+        for i in range(0, len(page_ids), 50):
+            chunk = page_ids[i : i + 50]
+            data = self._get(
+                {
+                    "action": "query",
+                    "prop": "revisions",
+                    "rvprop": "content",
+                    "rvslots": "main",
+                    "pageids": "|".join(str(pid) for pid in chunk),
+                    "format": "json",
+                }
+            )
+            for page_info in data.get("query", {}).get("pages", {}).values():
+                pid = page_info.get("pageid")
+                revisions = page_info.get("revisions", [])
+                if pid is not None and revisions:
+                    result[int(pid)] = revisions[0].get("slots", {}).get(
+                        "main", {}
+                    ).get("*", "")
+            time.sleep(0.3)
+        return result
+
+    # ------------------------------------------------------------------
+    # Batch page metadata (size + categories — second pass, matches only)
+    # ------------------------------------------------------------------
+
+    def fetch_page_metadata(
         self, page_ids: list[int]
     ) -> dict[int, dict[str, Any]]:
-        """Return {pageid: {wikitext, size, revid, categories}}.
+        """Return {pageid: {size, categories}}.
 
-        Fetches all three data sources in one batched query per 50 pages.
+        Used *after* the ref-filtering pass to enrich only matching pages.
         """
         result: dict[int, dict[str, Any]] = {}
         for i in range(0, len(page_ids), 50):
@@ -147,9 +176,7 @@ class NPPSession:
             data = self._get(
                 {
                     "action": "query",
-                    "prop": "revisions|info|categories",
-                    "rvprop": "content",
-                    "rvslots": "main",
+                    "prop": "info|categories",
                     "cllimit": "max",
                     "pageids": "|".join(str(pid) for pid in chunk),
                     "format": "json",
@@ -159,33 +186,12 @@ class NPPSession:
                 pid = page_info.get("pageid")
                 if pid is None:
                     continue
-
-                # Wikitext
-                revisions = page_info.get("revisions", [])
-                wikitext = ""
-                if revisions:
-                    wikitext = (
-                        revisions[0]
-                        .get("slots", {})
-                        .get("main", {})
-                        .get("*", "")
-                    )
-
-                # Page size (bytes) and latest revid from prop=info
-                size = page_info.get("length")
-                revid = page_info.get("lastrevid")
-
-                # Categories list
                 cats = page_info.get("categories", [])
-                cat_titles = sorted(
-                    c["title"] for c in cats if "title" in c
-                )
-
                 result[int(pid)] = {
-                    "wikitext": wikitext,
-                    "size": size,
-                    "revid": revid,
-                    "categories": cat_titles,
+                    "size": page_info.get("length"),
+                    "categories": sorted(
+                        c["title"] for c in cats if "title" in c
+                    ),
                 }
             time.sleep(0.3)
         return result

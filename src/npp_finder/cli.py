@@ -16,9 +16,10 @@ def main(argv: list[str] | None = None) -> None:
     args = _parse_args(argv)
     session = NPPSession()
 
-    # ------------------------------------------------------------------
-    # 1. Fetch new pages
-    # ------------------------------------------------------------------
+    # ==================================================================
+    # PHASE 1 — light: fetch page list + wikitext, run ref analysis
+    # ==================================================================
+
     print(f"Fetching new pages (last {args.days} days, limit {args.limit})...",
           file=sys.stderr)
     pages = session.fetch_new_pages(
@@ -29,82 +30,45 @@ def main(argv: list[str] | None = None) -> None:
     if not pages:
         print("No new pages found in the date window.", file=sys.stderr)
         return
-
     print(f"  → {len(pages)} pages retrieved", file=sys.stderr)
 
-    # ------------------------------------------------------------------
-    # 2. Batch-fetch page details (wikitext, size, categories)
-    # ------------------------------------------------------------------
+    # Fetch wikitext only (cheap — just prop=revisions)
     page_ids = [p["pageid"] for p in pages]
-    print(f"Fetching page details for {len(page_ids)} pages...",
-          file=sys.stderr)
-    details = session.fetch_page_details(page_ids)
+    print(f"Fetching wikitext for {len(page_ids)} pages...", file=sys.stderr)
+    wikitexts = session.fetch_wikitexts(page_ids)
 
-    # ------------------------------------------------------------------
-    # 3. Fetch user edit counts
-    # ------------------------------------------------------------------
-    unique_users = sorted({p["user"] for p in pages})
-    print(f"Fetching edit counts for {len(unique_users)} creators...",
-          file=sys.stderr)
-    edit_counts = session.fetch_user_edit_counts(unique_users)
-
-    # ------------------------------------------------------------------
-    # 4. Fetch deletion history
-    # ------------------------------------------------------------------
-    all_titles = {p["title"] for p in pages}
-    print(f"Checking deletion history for {len(all_titles)} titles...",
-          file=sys.stderr)
-    deleted_titles = session.fetch_deleted_titles(all_titles)
-
-    # ------------------------------------------------------------------
-    # 5. Fetch article quality predictions (Lift Wing)
-    # ------------------------------------------------------------------
-    rev_ids: list[int] = []
-    revid_to_pageid: dict[int, int] = {}
-    for p in pages:
-        rid = p.get("revid") or details.get(p["pageid"], {}).get("revid")
-        if rid:
-            rev_ids.append(int(rid))
-            revid_to_pageid[int(rid)] = p["pageid"]
-
-    quality_scores: dict[int, str] = {}
-    if not args.no_quality and rev_ids:
-        print(f"Fetching article quality scores for {len(rev_ids)} pages...",
-              file=sys.stderr)
-        quality_scores = session.fetch_quality_scores(rev_ids)
-    elif args.no_quality:
-        print("Skipping quality predictions (--no-quality).", file=sys.stderr)
-
-    # ------------------------------------------------------------------
-    # 6. Analyze references
-    # ------------------------------------------------------------------
+    # Run reference analysis on every page
     print("Analyzing references...", file=sys.stderr)
+
+    # Track which pages pass the filter (no-URL refs) for phase 2
+    pass_ids: set[int] = set()
+    # Build preliminary results so we can display them after enrichment
     results: list[dict[str, Any]] = []
+
     for page in pages:
         pid = page["pageid"]
-        d = details.get(pid, {})
-        raw = d.get("wikitext", "")
+        raw = wikitexts.get(pid, "")
         if not raw:
             continue
-
         has_url, total_refs, url_refs, bad_samples = has_any_url_refs(raw)
+        is_match = total_refs > 0 and not has_url
 
-        # Resolve quality score
-        rid = page.get("revid") or d.get("revid")
-        quality = quality_scores.get(int(rid)) if rid else None
+        if is_match:
+            pass_ids.add(pid)
 
         results.append(
             {
+                "pageid": pid,
                 "title": page["title"],
                 "timestamp": page["timestamp"],
                 "user": page["user"],
-                "editcount": edit_counts.get(page["user"]),
-                "size": d.get("size"),
-                "revid": rid,
+                "revid": page.get("revid"),
+                "editcount": None,
+                "size": None,
                 "has_infobox": has_infobox(raw),
-                "categories": d.get("categories", []),
-                "was_deleted": page["title"] in deleted_titles,
-                "quality": quality,
+                "categories": [],
+                "was_deleted": None,
+                "quality": None,
                 "has_url": has_url,
                 "total_refs": total_refs,
                 "url_refs": url_refs,
@@ -112,15 +76,61 @@ def main(argv: list[str] | None = None) -> None:
             }
         )
 
-    # ------------------------------------------------------------------
-    # 7. Filter to no-URL pages
-    # ------------------------------------------------------------------
     matches = [r for r in results if r["total_refs"] > 0 and not r["has_url"]]
     no_refs = [r for r in results if r["total_refs"] == 0]
 
-    # ------------------------------------------------------------------
-    # 8. Output
-    # ------------------------------------------------------------------
+    if not matches:
+        # Fast path — nothing to enrich
+        _output_table([], no_refs, results, args)
+        return
+
+    # ==================================================================
+    # PHASE 2 — expensive: enrich only the matching pages
+    # ==================================================================
+
+    print(f"Enriching {len(matches)} matching pages with metadata...",
+          file=sys.stderr)
+
+    # 2a — page metadata (size, categories)
+    match_ids = [r["pageid"] for r in matches]
+    meta = session.fetch_page_metadata(match_ids)
+    for r in matches:
+        m = meta.get(r["pageid"], {})
+        r["size"] = m.get("size")
+        r["categories"] = m.get("categories", [])
+    del meta
+
+    # 2b — creator edit counts
+    match_users = sorted({r["user"] for r in matches})
+    print(f"  edit counts ({len(match_users)} creators)...", file=sys.stderr)
+    edit_counts = session.fetch_user_edit_counts(match_users)
+    for r in matches:
+        r["editcount"] = edit_counts.get(r["user"])
+
+    # 2c — deletion history
+    match_titles = {r["title"] for r in matches}
+    print(f"  deletion history ({len(match_titles)} titles)...", file=sys.stderr)
+    deleted_titles = session.fetch_deleted_titles(match_titles)
+    for r in matches:
+        r["was_deleted"] = r["title"] in deleted_titles
+
+    # 2d — quality predictions (only if not skipped)
+    if not args.no_quality:
+        match_revids = [r["revid"] for r in matches if r.get("revid")]
+        if match_revids:
+            print(f"  quality scores ({len(match_revids)} pages)...",
+                  file=sys.stderr)
+            quality = session.fetch_quality_scores(match_revids)
+            for r in matches:
+                if r.get("revid") in quality:
+                    r["quality"] = quality[r["revid"]]
+    else:
+        print("  quality scores: skipped (--no-quality)", file=sys.stderr)
+
+    # ==================================================================
+    # Output
+    # ==================================================================
+
     if args.output == "json":
         _output_json(matches, no_refs, args)
     elif args.output == "csv":
@@ -225,7 +235,8 @@ def _output_table(
         nc = len(r.get("categories", []))
         nc_str = str(nc) if nc else "—"
 
-        dl = "Y" if r.get("was_deleted") else "N"
+        dl = r.get("was_deleted")
+        dl_str = "Y" if dl else "N" if dl is False else "—"
 
         ql = r.get("quality", "") or "—"
         ql = ql[:qual_w - 2]
@@ -242,7 +253,7 @@ def _output_table(
             f"| {sz_str:>{size_w - 2}}",
             f"| {ib:^{infobox_w - 2}}",
             f"| {nc_str:>{cats_w - 2}}",
-            f"| {dl:^{del_w - 2}}",
+            f"| {dl_str:^{del_w - 2}}",
             f"| {ql:^{qual_w - 2}}",
             f"| {refs:>{refs_w - 2}}",
             f"| {urls:>{url_w - 2}}",
@@ -314,6 +325,7 @@ def _output_csv(matches: list[dict[str, Any]], args: argparse.Namespace) -> None
     )
     for r in sorted(matches, key=lambda x: x["timestamp"], reverse=True):
         ec = r.get("editcount")
+        dl = r.get("was_deleted")
         writer.writerow(
             [
                 r["title"],
@@ -323,7 +335,7 @@ def _output_csv(matches: list[dict[str, Any]], args: argparse.Namespace) -> None
                 r.get("size"),
                 "Y" if r.get("has_infobox") else "N",
                 len(r.get("categories", [])),
-                "Y" if r.get("was_deleted") else "N",
+                "Y" if dl else "N" if dl is False else "",
                 r.get("quality"),
                 r["total_refs"],
                 r["url_refs"],
