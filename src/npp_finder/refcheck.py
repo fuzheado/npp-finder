@@ -214,6 +214,19 @@ def _is_inside_ref(
     return False
 
 
+def has_infobox(wikitext: str) -> bool:
+    """Return True if the page wikitext contains an infobox template."""
+    try:
+        parsed = mwparserfromhell.parse(wikitext)
+    except Exception:
+        return False
+    for template in parsed.filter_templates():
+        name = str(template.name).strip()
+        if name.lower().startswith("infobox"):
+            return True
+    return False
+
+
 def _summarize_ref(content: str) -> str:
     """Produce a short, readable snippet of a reference body."""
     # Extract template names instead of just "[template]"

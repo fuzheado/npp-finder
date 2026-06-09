@@ -1,6 +1,6 @@
 """API client for querying English Wikipedia.
 
-Handles User-Agent, rate-limiting, pagination, and batch wikitext fetching.
+Handles User-Agent, rate-limiting, pagination, and batched data fetching.
 """
 
 from __future__ import annotations
@@ -15,6 +15,8 @@ USER_AGENT = (
     "NPP-Finder/0.1 (https://github.com/example/npp-finder; npp-finder@example.com) "
     "NPPBacklogFiltering"
 )
+
+LIFT_WING_BASE = "https://api.wikimedia.org/service/lw/inference/v1/models"
 
 
 class NPPSession:
@@ -61,21 +63,15 @@ class NPPSession:
     ) -> list[dict[str, Any]]:
         """Return list of newly created mainspace pages.
 
-        Each dict has keys: pageid, title, timestamp, user.
+        Each dict has keys: pageid, title, revid, timestamp, user.
 
-        Note: ``unreviewed_only`` requires the ``patrol`` user right
-        (New Page Reviewer or admin). Without it the filter is silently skipped.
+        ``unreviewed_only`` requires the ``patrol`` user right
+        (New Page Reviewer or admin); without it the filter is silently skipped.
         """
-        # recentchanges `rctype=new` gives page creations.
-        # We deliberately omit rcprop=patrolled because it requires the patrol
-        # right (permissiondenied for unauthenticated users).  To filter by
-        # patrol status you must authenticate with a New Page Reviewer account.
         rcprop = "title|timestamp|ids|user"
-        rcshow = "!redirect"  # skip redirects
+        rcshow = "!redirect"
 
         if unreviewed_only:
-            # These require authentication — if the user isn't a patroller,
-            # the API will return a permission error.  We warn on stderr.
             rcprop += "|patrolled"
             rcshow += "|!patrolled"
 
@@ -85,13 +81,13 @@ class NPPSession:
             "rctype": "new",
             "rcnamespace": "0",
             "rcshow": rcshow,
-            "rclimit": "max",              # 500
+            "rclimit": "max",
             "rcprop": rcprop,
             "format": "json",
         }
 
         pages: list[dict[str, Any]] = []
-        cutoff_ts: str | None = None  # computed from first batch
+        cutoff_ts: str | None = None
 
         while True:
             data = self._get(params)
@@ -100,7 +96,6 @@ class NPPSession:
             for rc in rc_list:
                 ts = rc["timestamp"]
                 if cutoff_ts is None:
-                    # Timestamps from recentchanges are ISO 8601: "YYYY-MM-DDTHH:MM:SSZ"
                     from datetime import datetime, timedelta, timezone
 
                     try:
@@ -113,7 +108,6 @@ class NPPSession:
                     cutoff_ts = cutoff.strftime("%Y-%m-%dT%H:%M:%SZ")
 
                 if ts < cutoff_ts:
-                    # We've gone past our date window — stop paginating
                     in_window = [p for p in pages if p["timestamp"] >= cutoff_ts]
                     return in_window[:limit]
 
@@ -121,12 +115,12 @@ class NPPSession:
                     {
                         "pageid": rc["pageid"],
                         "title": rc["title"],
+                        "revid": rc.get("revid"),
                         "timestamp": ts,
                         "user": rc.get("user", "Unknown"),
                     }
                 )
 
-            # Stop if we have enough or no more pages
             if len(pages) >= limit:
                 return pages[:limit]
 
@@ -137,8 +131,64 @@ class NPPSession:
             params["continue"] = data["continue"]["continue"]
 
     # ------------------------------------------------------------------
-    # Batch wikitext fetching
+    # Batch page metadata (wikitext + size + categories)
     # ------------------------------------------------------------------
+
+    def fetch_page_details(
+        self, page_ids: list[int]
+    ) -> dict[int, dict[str, Any]]:
+        """Return {pageid: {wikitext, size, revid, categories}}.
+
+        Fetches all three data sources in one batched query per 50 pages.
+        """
+        result: dict[int, dict[str, Any]] = {}
+        for i in range(0, len(page_ids), 50):
+            chunk = page_ids[i : i + 50]
+            data = self._get(
+                {
+                    "action": "query",
+                    "prop": "revisions|info|categories",
+                    "rvprop": "content",
+                    "rvslots": "main",
+                    "cllimit": "max",
+                    "pageids": "|".join(str(pid) for pid in chunk),
+                    "format": "json",
+                }
+            )
+            for page_info in data.get("query", {}).get("pages", {}).values():
+                pid = page_info.get("pageid")
+                if pid is None:
+                    continue
+
+                # Wikitext
+                revisions = page_info.get("revisions", [])
+                wikitext = ""
+                if revisions:
+                    wikitext = (
+                        revisions[0]
+                        .get("slots", {})
+                        .get("main", {})
+                        .get("*", "")
+                    )
+
+                # Page size (bytes) and latest revid from prop=info
+                size = page_info.get("length")
+                revid = page_info.get("lastrevid")
+
+                # Categories list
+                cats = page_info.get("categories", [])
+                cat_titles = sorted(
+                    c["title"] for c in cats if "title" in c
+                )
+
+                result[int(pid)] = {
+                    "wikitext": wikitext,
+                    "size": size,
+                    "revid": revid,
+                    "categories": cat_titles,
+                }
+            time.sleep(0.3)
+        return result
 
     # ------------------------------------------------------------------
     # User edit count lookup
@@ -147,11 +197,7 @@ class NPPSession:
     def fetch_user_edit_counts(
         self, usernames: list[str]
     ) -> dict[str, int | None]:
-        """Return {username: editcount} for a batch of usernames.
-
-        Anonymous/logged-out users have no lookup result and will be
-        returned as ``None``.  Batches up to 50 names per API call.
-        """
+        """Return {username: editcount}. Anonymous users are ``None``."""
         result: dict[str, int | None] = {}
         for i in range(0, len(usernames), 50):
             chunk = usernames[i : i + 50]
@@ -175,32 +221,82 @@ class NPPSession:
         return result
 
     # ------------------------------------------------------------------
-    # Batch wikitext fetching
+    # Previous deletion check
     # ------------------------------------------------------------------
 
-    def fetch_wikitexts(
-        self, page_ids: list[int]
+    def fetch_deleted_titles(
+        self, page_titles: set[str]
+    ) -> set[str]:
+        """Return subset of ``page_titles`` that appear in the deletion log.
+
+        Queries the last ~5000 deletion events (paginated) and checks for
+        title matches.  Catches G4 candidates.
+        """
+        titles_norm: set[str] = {t.replace(" ", "_") for t in page_titles}
+        deleted: set[str] = set()
+
+        params: dict[str, Any] = {
+            "action": "query",
+            "list": "logevents",
+            "letype": "delete",
+            "leaction": "delete/delete",
+            "lelimit": "max",
+            "leprop": "title",
+            "format": "json",
+        }
+
+        for _ in range(10):  # up to 10 pages × 500 = 5000 entries
+            data = self._get(params)
+            events = data.get("query", {}).get("logevents", [])
+            if not events:
+                break
+            for ev in events:
+                title = ev.get("title", "").replace(" ", "_")
+                if title in titles_norm:
+                    deleted.add(title)
+            if "continue" not in data:
+                break
+            params["lecontinue"] = data["continue"]["lecontinue"]
+            params["continue"] = data["continue"]["continue"]
+
+        return {d.replace("_", " ") for d in deleted}
+
+    # ------------------------------------------------------------------
+    # Lift Wing article quality prediction
+    # ------------------------------------------------------------------
+
+    def fetch_quality_scores(
+        self, rev_ids: list[int]
     ) -> dict[int, str]:
-        """Return {pageid: wikitext} for a batch of page IDs (max 50 per call)."""
+        """Return {rev_id: predicted_quality_class}.
+
+        Classes: Stub, Start, C, B, GA, FA.
+        Uses the Lift Wing inference API (ORES-compatible format).
+        """
         result: dict[int, str] = {}
-        for i in range(0, len(page_ids), 50):
-            chunk = page_ids[i : i + 50]
-            data = self._get(
-                {
-                    "action": "query",
-                    "prop": "revisions",
-                    "rvprop": "content",
-                    "rvslots": "main",
-                    "pageids": "|".join(str(pid) for pid in chunk),
-                    "format": "json",
-                }
-            )
-            for page_info in data.get("query", {}).get("pages", {}).values():
-                pid = page_info.get("pageid")
-                revisions = page_info.get("revisions", [])
-                if pid is not None and revisions:
-                    result[int(pid)] = revisions[0].get("slots", {}).get(
-                        "main", {}
-                    ).get("*", "")
-            time.sleep(0.3)  # gentle rate-limiting between batches
+        for rid in rev_ids:
+            try:
+                resp = self._session.post(
+                    f"{LIFT_WING_BASE}/enwiki-articlequality:predict",
+                    json={"rev_id": rid},
+                    timeout=(10, 30),
+                )
+                if resp.status_code == 200:
+                    payload = resp.json()
+                    # The response is ORES-compatible nested format:
+                    # enwiki.scores.<rev_id>.articlequality.score.prediction
+                    prediction = (
+                        payload.get("enwiki", {})
+                        .get("scores", {})
+                        .get(str(rid), {})
+                        .get("articlequality", {})
+                        .get("score", {})
+                        .get("prediction")
+                    )
+                    if prediction:
+                        result[rid] = prediction
+                # 429/503/504 — skip instead of retry storm
+            except (requests.RequestException, ValueError, TypeError):
+                pass
+            time.sleep(0.15)
         return result
