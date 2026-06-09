@@ -140,6 +140,44 @@ class NPPSession:
     # Batch wikitext fetching
     # ------------------------------------------------------------------
 
+    # ------------------------------------------------------------------
+    # User edit count lookup
+    # ------------------------------------------------------------------
+
+    def fetch_user_edit_counts(
+        self, usernames: list[str]
+    ) -> dict[str, int | None]:
+        """Return {username: editcount} for a batch of usernames.
+
+        Anonymous/logged-out users have no lookup result and will be
+        returned as ``None``.  Batches up to 50 names per API call.
+        """
+        result: dict[str, int | None] = {}
+        for i in range(0, len(usernames), 50):
+            chunk = usernames[i : i + 50]
+            data = self._get(
+                {
+                    "action": "query",
+                    "list": "users",
+                    "ususers": "|".join(chunk),
+                    "usprop": "editcount",
+                    "format": "json",
+                }
+            )
+            for user_info in data.get("query", {}).get("users", []):
+                name = user_info.get("name", "")
+                if "missing" in user_info or "invalid" in user_info:
+                    result[name] = None
+                else:
+                    ec = user_info.get("editcount")
+                    result[name] = int(ec) if ec is not None else None
+            time.sleep(0.1)
+        return result
+
+    # ------------------------------------------------------------------
+    # Batch wikitext fetching
+    # ------------------------------------------------------------------
+
     def fetch_wikitexts(
         self, page_ids: list[int]
     ) -> dict[int, str]:

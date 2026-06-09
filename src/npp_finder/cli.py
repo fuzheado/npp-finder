@@ -41,7 +41,15 @@ def main(argv: list[str] | None = None) -> None:
     wikitexts = session.fetch_wikitexts(page_ids)
 
     # ------------------------------------------------------------------
-    # 3. Analyze references
+    # 3. Fetch user edit counts
+    # ------------------------------------------------------------------
+    unique_users = sorted({p["user"] for p in pages})
+    print(f"Fetching edit counts for {len(unique_users)} creators...",
+          file=sys.stderr)
+    edit_counts = session.fetch_user_edit_counts(unique_users)
+
+    # ------------------------------------------------------------------
+    # 4. Analyze references
     # ------------------------------------------------------------------
     print("Analyzing references...", file=sys.stderr)
     results: list[dict[str, Any]] = []
@@ -56,6 +64,7 @@ def main(argv: list[str] | None = None) -> None:
                 "title": page["title"],
                 "timestamp": page["timestamp"],
                 "user": page["user"],
+                "editcount": edit_counts.get(page["user"]),
                 "has_url": has_url,
                 "total_refs": total_refs,
                 "url_refs": url_refs,
@@ -64,13 +73,13 @@ def main(argv: list[str] | None = None) -> None:
         )
 
     # ------------------------------------------------------------------
-    # 4. Filter to no-URL pages
+    # 5. Filter to no-URL pages
     # ------------------------------------------------------------------
     matches = [r for r in results if r["total_refs"] > 0 and not r["has_url"]]
     no_refs = [r for r in results if r["total_refs"] == 0]
 
     # ------------------------------------------------------------------
-    # 5. Output
+    # 6. Output
     # ------------------------------------------------------------------
     if args.output == "json":
         _output_json(matches, no_refs, args)
@@ -116,15 +125,17 @@ def _output_table(
     date_width = 10
     title_width = min(60, max(len(r["title"]) for r in matches) + 2)
     user_width = min(25, max(len(r["user"]) for r in matches) + 2)
+    ec_width = 8
 
     sep = (
         f"+{'-' * date_width}+{'-' * title_width}+{'-' * user_width}"
-        f"+------+-------+----------------------------------+"
+        f"+{'-' * ec_width}+------+-------+----------------------------------+"
     )
     header = (
         f"| {'Date':^{date_width - 2}}"
         f" | {'Title':^{title_width - 2}}"
         f" | {'Creator':^{user_width - 2}}"
+        f" | {'Edits':^{ec_width - 2}}"
         f" | {'Refs':^4}"
         f" | {'URL':^5}"
         f" | {'Sample non-URL ref':^32} |"
@@ -140,6 +151,8 @@ def _output_table(
         date_str = ts[:10]
         title = r["title"][:title_width - 2]
         user = r["user"][:user_width - 2]
+        ec = r.get("editcount")
+        ec_str = f"{ec:,d}" if ec is not None else "—"
         refs = str(r["total_refs"])
         urls = str(r["url_refs"])
         sample = (r["bad_samples"][0] if r["bad_samples"] else "(none)")[:30]
@@ -148,6 +161,7 @@ def _output_table(
             f"| {date_str:<{date_width - 2}}"
             f" | {title:<{title_width - 2}}"
             f" | {user:<{user_width - 2}}"
+            f" | {ec_str:>{ec_width - 2}}"
             f" | {refs:>4}"
             f" | {urls:>5}"
             f" | {sample:<32} |"
@@ -173,6 +187,7 @@ def _output_json(
                 "title": r["title"],
                 "timestamp": _format_iso(r["timestamp"]),
                 "user": r["user"],
+                "editcount": r.get("editcount"),
                 "total_refs": r["total_refs"],
                 "url_refs": r["url_refs"],
                 "sample_bad_refs": r["bad_samples"],
@@ -190,13 +205,15 @@ def _output_csv(matches: list[dict[str, Any]], args: argparse.Namespace) -> None
     import csv
 
     writer = csv.writer(sys.stdout)
-    writer.writerow(["Title", "Created", "Creator", "TotalRefs", "URLRefs", "SampleBadRef"])
+    writer.writerow(["Title", "Created", "Creator", "EditCount", "TotalRefs", "URLRefs", "SampleBadRef"])
     for r in sorted(matches, key=lambda x: x["timestamp"], reverse=True):
+        ec = r.get("editcount")
         writer.writerow(
             [
                 r["title"],
                 _format_iso(r["timestamp"]),
                 r["user"],
+                ec,
                 r["total_refs"],
                 r["url_refs"],
                 (r["bad_samples"][0] if r["bad_samples"] else ""),
