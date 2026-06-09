@@ -55,16 +55,40 @@ least one citation is verifiable online.
 
 ## Installation
 
+### Prerequisites
+- **Python 3.10+** — recent macOS versions include `python3` via Xcode command line tools
+  or Homebrew. To check: `python3 --version`.
+- **An internet connection** (for the Wikipedia API — no account needed for reads).
+
+### Steps
+
 ```bash
 git clone https://github.com/fuzheado/npp-finder.git
 cd npp-finder
 python3 -m venv .venv
 source .venv/bin/activate
+
+# Upgrade pip and setuptools inside the venv (avoids build warnings)
+pip install --upgrade pip setuptools wheel
+
+# Install npp-finder in editable mode
 pip install -e .
 ```
 
-Requires Python 3.10+ and an internet connection. No Wikipedia account needed
-for read-only queries.
+> ⚠️ **macOS note:** Modern macOS (Sonoma/Sequoia) ships with Python 3.14 via
+> Homebrew, which blocks `pip install` outside a virtual environment
+> (PEP 668 — `externally-managed-environment` error). **Always activate the venv
+> first** with `source .venv/bin/activate` before running `pip install`. If you
+> see that error, you forgot the activate step.
+
+### Verify it works
+
+```bash
+npp-finder --days 1 --limit 10
+```
+
+This should list the most recently created Wikipedia pages and highlight any
+with URL-free references. No Wikipedia login required.
 
 ## Usage
 
