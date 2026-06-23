@@ -92,10 +92,10 @@ async def run_scan(
     days: int = Form(7),
     limit: int = Form(100),
     no_quality: bool = Form(False),
-    filter_no_url: bool = Form(True),
-    filter_no_refs: bool = Form(False),
-    filter_no_infobox: bool = Form(False),
-    filter_was_deleted: bool = Form(False),
+    filter_no_url: str = Form("false"),
+    filter_no_refs: str = Form("false"),
+    filter_no_infobox: str = Form("false"),
+    filter_was_deleted: str = Form("false"),
 ):
     """Start a scan in a background thread and return the progress page."""
     acquired = SCAN_LOCK.acquire(blocking=False)
@@ -113,10 +113,10 @@ async def run_scan(
                 days=days,
                 limit=limit,
                 no_quality=no_quality,
-                filter_no_url=filter_no_url,
-                filter_no_refs=filter_no_refs,
-                filter_no_infobox=filter_no_infobox,
-                filter_was_deleted=filter_was_deleted,
+                filter_no_url=filter_no_url.lower() == "true",
+                filter_no_refs=filter_no_refs.lower() == "true",
+                filter_no_infobox=filter_no_infobox.lower() == "true",
+                filter_was_deleted=filter_was_deleted.lower() == "true",
             )
             _save_results(results)
             _scan_progress = {
@@ -175,16 +175,18 @@ async def api_scan(
     days: int = Form(7),
     limit: int = Form(100),
     no_quality: bool = Form(False),
-    filter_no_url: bool = Form(True),
-    filter_no_refs: bool = Form(False),
-    filter_no_infobox: bool = Form(False),
-    filter_was_deleted: bool = Form(False),
+    filter_no_url: str = Form("false"),
+    filter_no_refs: str = Form("false"),
+    filter_no_infobox: str = Form("false"),
+    filter_was_deleted: str = Form("false"),
 ):
     """Run a scan synchronously and return JSON results."""
     results = _do_scan(
         days=days, limit=limit, no_quality=no_quality,
-        filter_no_url=filter_no_url, filter_no_refs=filter_no_refs,
-        filter_no_infobox=filter_no_infobox, filter_was_deleted=filter_was_deleted,
+        filter_no_url=filter_no_url.lower() == "true",
+        filter_no_refs=filter_no_refs.lower() == "true",
+        filter_no_infobox=filter_no_infobox.lower() == "true",
+        filter_was_deleted=filter_was_deleted.lower() == "true",
     )
     _save_results(results)
     return JSONResponse(results)

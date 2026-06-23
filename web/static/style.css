@@ -44,9 +44,16 @@ header {
   border-bottom: 1px solid var(--border);
 }
 
-h1 {
+.header-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+}
+
+.header-row h1 {
   font-size: 22px;
   font-weight: 600;
+  margin: 0;
 }
 
 .logo { color: var(--accent); }
@@ -256,12 +263,6 @@ a:hover { color: var(--link-hover); text-decoration: underline; }
 
 /* Footer */
 /* Header nav */
-.header-nav {
-  display: flex;
-  gap: 8px;
-  margin-top: 4px;
-}
-
 .btn-link {
   background: none;
   border: none;

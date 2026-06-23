@@ -10,13 +10,13 @@
 
 <div class="container">
   <header>
-    <h1>
-      <span class="logo">npp-finder</span>
-      <span class="subtitle">New Pages Patrol Dashboard</span>
-    </h1>
-    <nav class="header-nav">
+    <div class="header-row">
+      <h1>
+        <span class="logo">npp-finder</span>
+        <span class="subtitle">New Pages Patrol Dashboard</span>
+      </h1>
       <button class="btn-link" id="about-btn" type="button">About</button>
-    </nav>
+    </div>
   </header>
 
   <!-- Scan form -->
@@ -40,19 +40,19 @@
     <fieldset class="filter-group">
       <legend>Filters</legend>
       <label class="checkbox-label">
-        <input type="checkbox" name="filter_no_url" value="true" checked>
+        <input type="checkbox" name="filter_no_url" value="true" checked id="cb-no-url">
         No URL references
       </label>
       <label class="checkbox-label">
-        <input type="checkbox" name="filter_no_refs" value="true">
+        <input type="checkbox" name="filter_no_refs" value="true" id="cb-no-refs">
         No references at all
       </label>
       <label class="checkbox-label">
-        <input type="checkbox" name="filter_no_infobox" value="true">
+        <input type="checkbox" name="filter_no_infobox" value="true" id="cb-no-infobox">
         Missing infobox
       </label>
       <label class="checkbox-label">
-        <input type="checkbox" name="filter_was_deleted" value="true">
+        <input type="checkbox" name="filter_was_deleted" value="true" id="cb-was-deleted">
         Previously deleted (G4)
       </label>
     </fieldset>
@@ -204,8 +204,28 @@
 
   let pollTimer = null;
 
+  // Mutual exclusion: no-url and no-refs can't both be checked
+  document.getElementById('cb-no-url').addEventListener('change', function() {
+    if (this.checked) document.getElementById('cb-no-refs').checked = false;
+  });
+  document.getElementById('cb-no-refs').addEventListener('change', function() {
+    if (this.checked) document.getElementById('cb-no-url').checked = false;
+  });
+
   form.addEventListener('submit', function(e) {
     e.preventDefault();
+
+    // For each unchecked checkbox, inject a hidden 'false' input
+    // (unchecked checkboxes send nothing; FastAPI uses default which is wrong)
+    document.querySelectorAll('input[type="checkbox"]').forEach(function(cb) {
+      if (!cb.checked) {
+        var h = document.createElement('input');
+        h.type = 'hidden';
+        h.name = cb.name;
+        h.value = 'false';
+        form.appendChild(h);
+      }
+    });
 
     // Show progress panel, hide old results
     progressPanel.style.display = 'block';
