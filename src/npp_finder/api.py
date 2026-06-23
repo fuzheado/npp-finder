@@ -5,6 +5,7 @@ Handles User-Agent, rate-limiting, pagination, and batched data fetching.
 
 from __future__ import annotations
 
+import collections.abc
 import time
 from typing import Any
 
@@ -272,15 +273,23 @@ class NPPSession:
     # ------------------------------------------------------------------
 
     def fetch_quality_scores(
-        self, rev_ids: list[int]
+        self,
+        rev_ids: list[int],
+        on_progress: collections.abc.Callable[[int, int], Any] | None = None,
     ) -> dict[int, str]:
         """Return {rev_id: predicted_quality_class}.
 
         Classes: Stub, Start, C, B, GA, FA.
         Uses the Lift Wing inference API (ORES-compatible format).
+
+        Args:
+            rev_ids: List of revision IDs to score.
+            on_progress: Optional callback ``f(done, total)`` invoked after
+                each individual API call.
         """
         result: dict[int, str] = {}
-        for rid in rev_ids:
+        total = len(rev_ids)
+        for idx, rid in enumerate(rev_ids):
             try:
                 resp = self._session.post(
                     f"{LIFT_WING_BASE}/enwiki-articlequality:predict",
@@ -304,5 +313,7 @@ class NPPSession:
                 # 429/503/504 — skip instead of retry storm
             except (requests.RequestException, ValueError, TypeError):
                 pass
+            if on_progress:
+                on_progress(idx + 1, total)
             time.sleep(0.15)
         return result

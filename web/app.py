@@ -26,7 +26,7 @@ if str(_src) not in sys.path:
     sys.path.insert(0, str(_src))
 
 from npp_finder.api import NPPSession
-from npp_finder.refcheck import has_any_url_refs, has_infobox
+from npp_finder.refcheck import has_any_url_refs, has_infobox, detect_page_type
 
 app = FastAPI(title="npp-finder Dashboard")
 
@@ -258,6 +258,7 @@ def _do_scan(
             "editcount": None,
             "size": None,
             "has_infobox": has_infobox(raw),
+            "page_type": detect_page_type(raw, page["title"]),
             "categories": [],
             "was_deleted": None,
             "quality": None,
@@ -321,8 +322,17 @@ def _do_scan(
         step_pct = pct_base + int(pct_range * 0.8)
         match_revids = [r["revid"] for r in matches if r.get("revid")]
         if match_revids:
-            _set_progress("enriching_quality", f"Fetching quality scores for {len(match_revids)} pages...", step_pct)
-            quality = session.fetch_quality_scores(match_revids)
+            total_q = len(match_revids)
+            _set_progress("enriching_quality", f"Fetching quality scores... 0/{total_q}", step_pct)
+            quality = session.fetch_quality_scores(
+                match_revids,
+                on_progress=lambda done, _tot: _set_progress(
+                    "enriching_quality",
+                    f"Fetching quality scores... {done}/{total_q}",
+                    step_pct + int((pct_range * 0.2) * done / total_q),
+                ),
+            )
+            _set_progress("enriching_quality", f"Fetching quality scores... {total_q}/{total_q}", step_pct + int(pct_range * 0.2))
             for r in matches:
                 if r.get("revid") in quality:
                     r["quality"] = quality[r["revid"]]

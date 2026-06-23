@@ -227,6 +227,51 @@ def has_infobox(wikitext: str) -> bool:
     return False
 
 
+def detect_page_type(wikitext: str, title: str = "") -> str:
+    """Classify a Wikipedia page into a structural type.
+
+    Returns one of:
+      "disambiguation" — page with a disambiguation template
+      "surname" — page with a {{surname}} template
+      "set index" — page with {{set index article}} or {{SIA}}
+      "list" — title starts with "List of"
+      "article" — everything else
+    """
+    try:
+        parsed = mwparserfromhell.parse(wikitext)
+    except Exception:
+        return "article"
+
+    # Simplified template name matching
+    DISAMBIG_TEMPLATES = frozenset({
+        "disambiguation", "disambig", "dab", "geodis", "hndis",
+        "schooldis", "numberdis", "mil-unit-dis", "lnd",
+        "disambiguation page", "dab page",
+    })
+    SURNAME_TEMPLATES = frozenset({"surname", "surname page"})
+    SET_INDEX_TEMPLATES = frozenset({
+        "set index article", "sia", "set index",
+    })
+
+    for template in parsed.filter_templates():
+        name = str(template.name).strip().lower()
+        # Strip namespace prefix if present (e.g. "Template:disambiguation")
+        if name.startswith("template:"):
+            name = name[9:]
+        if name in DISAMBIG_TEMPLATES:
+            return "disambiguation"
+        if name in SURNAME_TEMPLATES:
+            return "surname"
+        if name in SET_INDEX_TEMPLATES:
+            return "set index"
+
+    # Check title for list pattern
+    if title.startswith("List of") or title.startswith("Lists of"):
+        return "list"
+
+    return "article"
+
+
 def _summarize_ref(content: str) -> str:
     """Produce a short, readable snippet of a reference body."""
     # Extract template names instead of just "[template]"

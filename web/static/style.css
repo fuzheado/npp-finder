@@ -406,6 +406,36 @@ a:hover { color: var(--link-hover); text-decoration: underline; }
   font-size: 13px;
   margin: 8px 0;
 }
+.type-badge {
+  display: inline-block;
+  font-size: 10px;
+  font-weight: 600;
+  padding: 1px 5px;
+  border-radius: 3px;
+  text-transform: uppercase;
+  letter-spacing: 0.3px;
+}
+
+.type-disambiguation {
+  background: #eaecf0;
+  color: #54595d;
+}
+
+.type-surname {
+  background: #e0f2d0;
+  color: #2a6d2a;
+}
+
+.type-set\ index {
+  background: #dce8ff;
+  color: #2a4b8d;
+}
+
+.type-list {
+  background: #fff3cd;
+  color: #856404;
+}
+
 .about-table th, .about-table td {
   text-align: left;
   padding: 6px 8px;

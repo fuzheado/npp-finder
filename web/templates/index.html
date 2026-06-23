@@ -102,6 +102,7 @@
           <th scope="col">Inf</th>
           <th scope="col" class="num">Cat</th>
           <th scope="col">Del</th>
+          <th scope="col">Type</th>
           <th scope="col">Quality</th>
           <th scope="col" class="num">Refs</th>
           <th scope="col" class="num">URL</th>
@@ -125,6 +126,7 @@
           <td>{% if m.has_infobox %}Y{% else %}N{% endif %}</td>
           <td class="num">{% if m.categories %}{{ m.categories|length }}{% else %}—{% endif %}</td>
           <td>{% if m.was_deleted == True %}Y{% elif m.was_deleted == False %}N{% else %}—{% endif %}</td>
+          <td>{% if m.page_type and m.page_type != "article" %}<span class="type-badge type-{{ m.page_type }}">{{ m.page_type[:4] }}</span>{% else %}—{% endif %}</td>
           <td>{% if m.quality %}{{ m.quality }}{% else %}—{% endif %}</td>
           <td class="num">{{ m.total_refs }}</td>
           <td class="num {% if m.url_refs == 0 and m.total_refs > 0 %}zero-url{% endif %}">{{ m.url_refs }}</td>
