@@ -1,0 +1,63 @@
+<div class="about-content">
+  <h2>About npp-finder</h2>
+
+  <p><strong>npp-finder</strong> is a <strong>New Pages Patrol</strong> triage tool
+  for English Wikipedia. It scans newly created articles and applies filters to
+  surface pages that may need reviewer attention.</p>
+
+  <h3>How it works</h3>
+
+  <ol>
+    <li><strong>Fetch</strong> — queries the MediaWiki API for the most recent
+      mainspace page creations</li>
+    <li><strong>Analyze</strong> — fetches each page's raw wikitext and parses
+      every <code>&lt;ref&gt;</code> tag to detect whether references contain
+      clickable URLs</li>
+    <li><strong>Enrich</strong> — for pages matching your filters, fetches
+      additional metadata: page size, categories, creator edit count,
+      deletion history, and ML quality predictions</li>
+    <li><strong>Report</strong> — displays the results in a sortable table
+      with links to each article and user page</li>
+  </ol>
+
+  <h3>What the columns mean</h3>
+
+  <table class="about-table">
+    <tr><th>Column</th><th>What it tells you</th></tr>
+    <tr><td>Edits</td><td>How many total edits the creator has — a rough
+      experience gauge. New users with few edits deserve closer scrutiny.</td></tr>
+    <tr><td>Size</td><td>Page size in bytes. A 400-byte "article" is almost
+      certainly a stub or junk.</td></tr>
+    <tr><td>Inf</td><td>Does the page have an <code>Infobox</code> template?
+      Missing on a person/place/film = red flag.</td></tr>
+    <tr><td>Cat</td><td>Number of categories. 0–1 = incomplete, 5+ = well structured.</td></tr>
+    <tr><td>Del?</td><td>Has a page with this exact title been deleted before?
+      If Yes, CSD G4 (recreation of deleted material) may apply.</td></tr>
+    <tr><td>Quality</td><td><strong>Lift Wing</strong> ML prediction from
+      Wikimedia's machine learning service. Predicted class: Stub, Start, C, B,
+      GA, or FA. A "Stub" or "Start" prediction means the article is likely
+      incomplete.</td></tr>
+    <tr><td>Refs / URL</td><td>Total references vs how many have a clickable
+      URL. If Refs &gt; 0 and URL = 0, every citation lacks a verifiable
+      link — a key NPP red flag.</td></tr>
+  </table>
+
+  <h3>Data sources</h3>
+
+  <ul>
+    <li><strong>Page data:</strong> English Wikipedia via the MediaWiki
+      Action API (<code>list=recentchanges</code>, <code>prop=revisions</code>,
+      <code>prop=info</code>)</li>
+    <li><strong>ML quality:</strong> Wikimedia Lift Wing inference service
+      (<code>enwiki-articlequality</code> model). Predicts Stub through FA
+      classes.</li>
+    <li><strong>Deletion history:</strong> Checks the deletion log for
+      previously deleted titles (CSD G4 detection).</li>
+  </ul>
+
+  <h3>Privacy</h3>
+
+  <p>No data is stored server-side beyond the cached JSON results file.
+  Queries are read-only — no Wikipedia login or patrol rights needed
+  (except for unreviewed-only filtering). No user tracking or analytics.</p>
+</div>

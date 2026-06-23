@@ -12,8 +12,11 @@
   <header>
     <h1>
       <span class="logo">npp-finder</span>
-      <span class="subtitle">New Pages Patrol — No-URL Reference Detector</span>
+      <span class="subtitle">New Pages Patrol Dashboard</span>
     </h1>
+    <nav class="header-nav">
+      <button class="btn-link" id="about-btn" type="button">About</button>
+    </nav>
   </header>
 
   <!-- Scan form -->
@@ -21,27 +24,50 @@
     <div class="form-row">
       <label>
         Days back
-        <input type="number" name="days" value="{{ days }}" min="1" max="30">
+        <input type="number" name="days" value="7" min="1" max="30">
       </label>
       <label>
         Max pages
-        <input type="number" name="limit" value="{{ limit }}" min="10" max="500">
+        <input type="number" name="limit" value="100" min="10" max="500">
       </label>
       <label class="checkbox-label">
         <input type="checkbox" name="no_quality" value="true">
-        Skip quality predictions (faster)
+        Skip quality (faster)
       </label>
       <button type="submit" class="btn-primary" id="scan-btn">Scan</button>
     </div>
+
+    <fieldset class="filter-group">
+      <legend>Filters</legend>
+      <label class="checkbox-label">
+        <input type="checkbox" name="filter_no_url" value="true" checked>
+        No URL references
+      </label>
+      <label class="checkbox-label">
+        <input type="checkbox" name="filter_no_refs" value="true">
+        No references at all
+      </label>
+      <label class="checkbox-label">
+        <input type="checkbox" name="filter_no_infobox" value="true">
+        Missing infobox
+      </label>
+      <label class="checkbox-label">
+        <input type="checkbox" name="filter_was_deleted" value="true">
+        Previously deleted (G4)
+      </label>
+    </fieldset>
   </form>
 
-  <!-- Spinner (shown during scan) -->
-  <div id="spinner" class="spinner" style="display:none;">
-    <div class="spinner-icon"></div>
-    <p>Scanning Wikipedia... this may take a moment.</p>
+  <!-- Progress display (shown during scan) -->
+  <div id="progress-panel" class="progress-panel" style="display:none;">
+    <div class="progress-bar-container">
+      <div class="progress-bar" id="progress-bar"></div>
+    </div>
+    <p class="progress-message" id="progress-message">Starting...</p>
   </div>
 
   <!-- Results -->
+  <div id="results-area">
   {% if results %}
 
   {% if results.error %}
@@ -53,9 +79,9 @@
     <span>Scanned <strong>{{ results.total_pages }}</strong> pages
           in <strong>{{ results.duration_seconds }}s</strong></span>
     <span class="sep">·</span>
-    <span><strong>{{ results.matches|length }}</strong> have no URL references</span>
+    <span><strong>{{ results.matches|length }}</strong> matches</span>
     <span class="sep">·</span>
-    <span><strong>{{ results.no_refs|length }}</strong> have no references at all</span>
+    <span><strong>{{ results.no_refs|length }}</strong> no refs</span>
     {% if results.scanned_at %}
     <span class="sep">·</span>
     <span class="timestamp">{{ results.scanned_at[:10] }} {{ results.scanned_at[11:16] }} UTC</span>
@@ -101,7 +127,7 @@
           <td>{% if m.was_deleted == True %}Y{% elif m.was_deleted == False %}N{% else %}—{% endif %}</td>
           <td>{% if m.quality %}{{ m.quality }}{% else %}—{% endif %}</td>
           <td class="num">{{ m.total_refs }}</td>
-          <td class="num {% if m.url_refs == 0 %}zero-url{% endif %}">{{ m.url_refs }}</td>
+          <td class="num {% if m.url_refs == 0 and m.total_refs > 0 %}zero-url{% endif %}">{{ m.url_refs }}</td>
           <td class="sample-cell">
             {% if m.bad_samples %}
             <code>{{ m.bad_samples[0][:40] }}</code>
@@ -113,7 +139,6 @@
     </table>
   </div>
 
-  <!-- Data export links -->
   <div class="export-links">
     <a href="/api/results">📥 Download JSON</a>
     <span class="sep">·</span>
@@ -122,30 +147,142 @@
 
   {% elif results.matches is defined and results.error is none %}
   <div class="alert alert-info">
-    No pages found where every reference lacks a URL.
-    Try widening the search (<code>--days</code> or <code>--limit</code>).
+    No pages match the current filter criteria.
+    Try widening the search (<code>days</code> or <code>limit</code>) or
+    changing the filters above.
   </div>
   {% endif %}
 
   {% endif %}
+  </div>
 
   <footer>
     <p>Data from English Wikipedia via the MediaWiki Action API.
-       No Wikipedia login required for read-only queries.
-       Requires the <code>patrol</code> user right for unreviewed-only filtering.</p>
+       No Wikipedia login required for read-only queries.</p>
   </footer>
 </div>
 
+<!-- About modal -->
+<div id="about-modal" class="modal-overlay" style="display:none;">
+  <div class="modal-box">
+    <button class="modal-close" id="about-close">&times;</button>
+    <div id="about-body"></div>
+  </div>
+</div>
+
 <script>
-  // Show spinner on form submit
-  document.getElementById('scan-form').addEventListener('submit', function() {
-    document.getElementById('spinner').style.display = 'block';
-    document.getElementById('scan-btn').disabled = true;
-    document.getElementById('scan-btn').textContent = 'Scanning...';
+  // ---- About modal ----
+  const aboutBtn = document.getElementById('about-btn');
+  const aboutModal = document.getElementById('about-modal');
+  const aboutClose = document.getElementById('about-close');
+  const aboutBody = document.getElementById('about-body');
+
+  aboutBtn.addEventListener('click', function() {
+    fetch('/about')
+      .then(r => r.text())
+      .then(html => {
+        aboutBody.innerHTML = html;
+        aboutModal.style.display = 'flex';
+      });
   });
 
-  // Auto-refresh for long scans (poll results.json)
-  // (disabled for prototype — page reloads naturally when the POST returns)
+  aboutClose.addEventListener('click', function() {
+    aboutModal.style.display = 'none';
+  });
+
+  aboutModal.addEventListener('click', function(e) {
+    if (e.target === aboutModal) aboutModal.style.display = 'none';
+  });
+
+  // ---- Scan form: submit = show progress, poll until done ----
+  const form = document.getElementById('scan-form');
+  const progressPanel = document.getElementById('progress-panel');
+  const progressBar = document.getElementById('progress-bar');
+  const progressMsg = document.getElementById('progress-message');
+  const scanBtn = document.getElementById('scan-btn');
+  const resultsArea = document.getElementById('results-area');
+
+  let pollTimer = null;
+
+  form.addEventListener('submit', function(e) {
+    e.preventDefault();
+
+    // Show progress panel, hide old results
+    progressPanel.style.display = 'block';
+    progressBar.style.width = '0%';
+    progressMsg.textContent = 'Starting...';
+    scanBtn.disabled = true;
+    scanBtn.textContent = 'Scanning...';
+    resultsArea.innerHTML = '';
+
+    // Submit form via fetch
+    const formData = new FormData(form);
+    fetch('/scan', { method: 'POST', body: formData })
+      .then(function(response) {
+        // The POST returns the progress page; start polling
+        pollTimer = setInterval(pollProgress, 500);
+      })
+      .catch(function(err) {
+        progressMsg.textContent = 'Error: ' + err.message;
+        scanBtn.disabled = false;
+        scanBtn.textContent = 'Scan';
+      });
+  });
+
+  function pollProgress() {
+    fetch('/api/progress')
+      .then(function(r) { return r.json(); })
+      .then(function(prog) {
+        progressBar.style.width = prog.pct + '%';
+        progressMsg.textContent = prog.message;
+
+        if (prog.done) {
+          clearInterval(pollTimer);
+          pollTimer = null;
+          if (prog.status === 'done') {
+            loadResults();
+          } else {
+            progressMsg.textContent = prog.message;
+            scanBtn.disabled = false;
+            scanBtn.textContent = 'Scan';
+          }
+        }
+      })
+      .catch(function(err) {
+        // Polling error — keep trying
+      });
+  }
+
+  function loadResults() {
+    fetch('/')
+      .then(function(r) { return r.text(); })
+      .then(function(html) {
+        // Extract results area from the fresh page
+        var parser = new DOMParser();
+        var doc = parser.parseFromString(html, 'text/html');
+        var newResults = doc.getElementById('results-area');
+        if (newResults) {
+          resultsArea.innerHTML = newResults.innerHTML;
+        }
+        progressPanel.style.display = 'none';
+        scanBtn.disabled = false;
+        scanBtn.textContent = 'Scan';
+      });
+  }
+
+  // Handle initial page load if scan_started is set
+  // (This fires when the page renders after POST /scan)
+  {% if scan_started %}
+  (function() {
+    progressPanel.style.display = 'block';
+    progressBar.style.width = '0%';
+    progressMsg.textContent = 'Starting...';
+    scanBtn.disabled = true;
+    scanBtn.textContent = 'Scanning...';
+    resultsArea.innerHTML = '';
+    pollTimer = setInterval(pollProgress, 500);
+  })();
+  {% endif %}
 </script>
 
 </body>
