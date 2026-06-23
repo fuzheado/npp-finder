@@ -1,0 +1,152 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>npp-finder Dashboard</title>
+  <link rel="stylesheet" href="/static/style.css">
+</head>
+<body>
+
+<div class="container">
+  <header>
+    <h1>
+      <span class="logo">npp-finder</span>
+      <span class="subtitle">New Pages Patrol — No-URL Reference Detector</span>
+    </h1>
+  </header>
+
+  <!-- Scan form -->
+  <form class="scan-form" method="POST" action="/scan" id="scan-form">
+    <div class="form-row">
+      <label>
+        Days back
+        <input type="number" name="days" value="{{ days }}" min="1" max="30">
+      </label>
+      <label>
+        Max pages
+        <input type="number" name="limit" value="{{ limit }}" min="10" max="500">
+      </label>
+      <label class="checkbox-label">
+        <input type="checkbox" name="no_quality" value="true">
+        Skip quality predictions (faster)
+      </label>
+      <button type="submit" class="btn-primary" id="scan-btn">Scan</button>
+    </div>
+  </form>
+
+  <!-- Spinner (shown during scan) -->
+  <div id="spinner" class="spinner" style="display:none;">
+    <div class="spinner-icon"></div>
+    <p>Scanning Wikipedia... this may take a moment.</p>
+  </div>
+
+  <!-- Results -->
+  {% if results %}
+
+  {% if results.error %}
+  <div class="alert alert-error">{{ results.error }}</div>
+  {% endif %}
+
+  {% if results.total_pages is defined %}
+  <div class="summary-bar">
+    <span>Scanned <strong>{{ results.total_pages }}</strong> pages
+          in <strong>{{ results.duration_seconds }}s</strong></span>
+    <span class="sep">·</span>
+    <span><strong>{{ results.matches|length }}</strong> have no URL references</span>
+    <span class="sep">·</span>
+    <span><strong>{{ results.no_refs|length }}</strong> have no references at all</span>
+    {% if results.scanned_at %}
+    <span class="sep">·</span>
+    <span class="timestamp">{{ results.scanned_at[:10] }} {{ results.scanned_at[11:16] }} UTC</span>
+    {% endif %}
+  </div>
+  {% endif %}
+
+  {% if results.matches %}
+  <div class="table-container">
+    <table class="results-table">
+      <thead>
+        <tr>
+          <th scope="col">Date</th>
+          <th scope="col">Title</th>
+          <th scope="col">Creator</th>
+          <th scope="col" class="num">Edits</th>
+          <th scope="col" class="num">Size</th>
+          <th scope="col">Inf</th>
+          <th scope="col" class="num">Cat</th>
+          <th scope="col">Del</th>
+          <th scope="col">Quality</th>
+          <th scope="col" class="num">Refs</th>
+          <th scope="col" class="num">URL</th>
+          <th scope="col">Sample ref</th>
+        </tr>
+      </thead>
+      <tbody>
+        {% for m in results.matches %}
+        <tr class="{% if m.was_deleted %}deleted-row{% endif %}">
+          <td class="date">{{ m.timestamp[:10] }}</td>
+          <td class="title-cell">
+            <a href="https://en.wikipedia.org/wiki/{{ m.title|urlencode }}" target="_blank"
+               title="Open in Wikipedia">{{ m.title }}</a>
+          </td>
+          <td class="user-cell">
+            <a href="https://en.wikipedia.org/wiki/User:{{ m.user|urlencode }}" target="_blank"
+               title="View user page">{{ m.user }}</a>
+          </td>
+          <td class="num">{% if m.editcount %}{{ '{:,}'.format(m.editcount) }}{% else %}—{% endif %}</td>
+          <td class="num">{% if m.size %}{{ '{:,}'.format(m.size) }}{% else %}—{% endif %}</td>
+          <td>{% if m.has_infobox %}Y{% else %}N{% endif %}</td>
+          <td class="num">{% if m.categories %}{{ m.categories|length }}{% else %}—{% endif %}</td>
+          <td>{% if m.was_deleted == True %}Y{% elif m.was_deleted == False %}N{% else %}—{% endif %}</td>
+          <td>{% if m.quality %}{{ m.quality }}{% else %}—{% endif %}</td>
+          <td class="num">{{ m.total_refs }}</td>
+          <td class="num {% if m.url_refs == 0 %}zero-url{% endif %}">{{ m.url_refs }}</td>
+          <td class="sample-cell">
+            {% if m.bad_samples %}
+            <code>{{ m.bad_samples[0][:40] }}</code>
+            {% else %}—{% endif %}
+          </td>
+        </tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </div>
+
+  <!-- Data export links -->
+  <div class="export-links">
+    <a href="/api/results">📥 Download JSON</a>
+    <span class="sep">·</span>
+    <a href="https://github.com/fuzheado/npp-finder" target="_blank">🐙 Source on GitHub</a>
+  </div>
+
+  {% elif results.matches is defined and results.error is none %}
+  <div class="alert alert-info">
+    No pages found where every reference lacks a URL.
+    Try widening the search (<code>--days</code> or <code>--limit</code>).
+  </div>
+  {% endif %}
+
+  {% endif %}
+
+  <footer>
+    <p>Data from English Wikipedia via the MediaWiki Action API.
+       No Wikipedia login required for read-only queries.
+       Requires the <code>patrol</code> user right for unreviewed-only filtering.</p>
+  </footer>
+</div>
+
+<script>
+  // Show spinner on form submit
+  document.getElementById('scan-form').addEventListener('submit', function() {
+    document.getElementById('spinner').style.display = 'block';
+    document.getElementById('scan-btn').disabled = true;
+    document.getElementById('scan-btn').textContent = 'Scanning...';
+  });
+
+  // Auto-refresh for long scans (poll results.json)
+  // (disabled for prototype — page reloads naturally when the POST returns)
+</script>
+
+</body>
+</html>
