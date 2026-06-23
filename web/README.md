@@ -6,18 +6,29 @@ references — designed for Toolforge Kubernetes deployment and local developmen
 ## Quick start
 
 ```bash
-# From the repo root, install npp-finder + web dependencies
-cd /path/to/npp-finder
+# Clone and enter the repo
+git clone https://github.com/fuzheado/npp-finder.git
+cd npp-finder
+
+# Set up a virtual environment (required on modern macOS — see PEP 668)
+python3 -m venv .venv
+source .venv/bin/activate
+
+# Install npp-finder and web dependencies
+pip install --upgrade pip setuptools wheel
 pip install -e .
 pip install -r web/requirements.txt
 
 # Run the dashboard
-cd web
-python app.py
+python web/app.py
 ```
 
 Open http://localhost:8080 — the form lets you set `--days` and `--limit`
 and shows results in a sortable table with clickable Wikipedia links.
+
+> ⚠️ **Always activate the venv** (`source .venv/bin/activate`) before running
+> `pip install` or `python web/app.py`. macOS Homebrew Python blocks
+> `pip install` outside a venv with an `externally-managed-environment` error.
 
 ## Deployment on Toolforge Kubernetes
 
