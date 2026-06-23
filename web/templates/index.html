@@ -217,6 +217,9 @@
   form.addEventListener('submit', function(e) {
     e.preventDefault();
 
+    // Remove any stale hidden-false inputs from previous submissions
+    form.querySelectorAll('.hf-input').forEach(function(el) { el.remove(); });
+
     // For each unchecked checkbox, inject a hidden 'false' input
     // (unchecked checkboxes send nothing; FastAPI uses default which is wrong)
     document.querySelectorAll('input[type="checkbox"]').forEach(function(cb) {
@@ -225,6 +228,7 @@
         h.type = 'hidden';
         h.name = cb.name;
         h.value = 'false';
+        h.className = 'hf-input';
         form.appendChild(h);
       }
     });
