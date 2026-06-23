@@ -174,3 +174,35 @@ Browser → GET / → results page with fresh data
 | Schedule recurring scans | Cron-triggered daily report posted to a wiki page |
 | More filters | By creator edit count threshold, by category, by topic (Lift Wing topic model) |
 | Dark mode | CSS variable swap |
+
+---
+
+## 8. Development Caveats (from prototyping)
+
+### 8.1 Known Technical Debt
+
+| Issue | Impact | Mitigation |
+|---|---|---|
+| **Single scan lock** — `SCAN_LOCK` blocks concurrent scans at the process level | Only one user can scan at a time. A slow scan (500 pages + quality) blocks all other users for ~2 minutes. | Replace with Redis-backed job queue for production deployment. |
+| **Results cached to local JSON file** — `results.json` is overwritten on every scan | No history. If two scans complete simultaneously, one overwrites the other's results. | Use timestamped filenames or a database for production. |
+| **No authentication** — the web app has no login | Anyone can trigger scans. No rate limiting per user. Acceptable for a prototype / Toolforge internal tool. | Add OAuth if deploying publicly. |
+| **Hidden field accumulation** — JS-injected form inputs persist across submissions | Previous versions had a bug where stale hidden `false` inputs caused wrong filter values on repeated submissions. Fixed by marking and removing `.hf-input` class elements before each submission. | See TECHNICAL_NOTES.md for full writeup. |
+
+### 8.2 API Constraints
+
+| Constraint | Detail | Reference |
+|---|---|---|
+| **Patrol right required** — `rcprop=patrolled` and `action=pagetriagelist` need the `patrol` user right | Unauthenticated users can only see new pages, not whether they're reviewed. | `pagetriage-api` skill; `api.py` fetch_new_pages. |
+| **Lift Wing slow** — ~0.15s per rev_id, sequential POST calls | 300 quality scores = ~45 seconds. Progress callback added to show `N/300` updates. | `api.py` fetch_quality_scores `on_progress` parameter. |
+| **Lift Wing response format** — ORES-compatible nested JSON, not simple `result.prediction` | Path: `enwiki.scores.<rev_id>.articlequality.score.prediction`. | `api.py` fetch_quality_scores. |
+| **RecentChanges time window** — ~30 days max history | `--days 30` is the practical upper limit. Longer windows return fewer results as entries age out. | `api.py` fetch_new_pages. |
+| **Rate limiting** — 429 responses with `Retry-After` header | Built-in retry with exponential backoff in `NPPSession._get()`. | `api.py`. |
+| **User-Agent required** — all Wikimedia API calls | `NPP-Session/0.1 (contact info) NPPBacklogFiltering` | `api.py` USER_AGENT constant. |
+
+### 8.3 Development Environment
+
+| Issue | Workaround |
+|---|---|
+| **PEP 668** — macOS Homebrew Python blocks `pip install` outside venv | Always activate `source .venv/bin/activate` before `pip install`. |
+| **Jinja2 3.1.6 + Python 3.14** — template cache incompatibility | Use raw `jinja2.Environment` instead of Starlette's `Jinja2Templates` wrapper. |
+| **Port 8080 in use** — dev server persists after exit | `lsof -ti :8080 \| xargs kill` or use `PORT=8081 python app.py`. |

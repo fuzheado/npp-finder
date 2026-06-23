@@ -13,3 +13,4 @@ build/
 .vscode/
 *.swp
 *.swo
+web/results.json
